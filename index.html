@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8" />
+  <title>Advanced Shaka Live Player</title>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.11/shaka-player.compiled.js"></script>
+
+  <style>
+    body {
+      background: #111;
+      color: white;
+      font-family: Arial, sans-serif;
+      text-align: center;
+      padding: 20px;
+    }
+
+    h2 {
+      margin-bottom: 20px;
+    }
+
+    video {
+      width: 80%;
+      margin-top: 15px;
+      background: black;
+    }
+
+    .controls {
+      margin: 15px auto;
+      max-width: 1000px;
+    }
+
+    input,
+    select,
+    button {
+      padding: 8px;
+      margin: 5px;
+      font-size: 14px;
+      border-radius: 4px;
+      border: none;
+    }
+
+    input {
+      width: 90%;
+      max-width: 900px;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    #status {
+      margin-top: 10px;
+      color: #00ff88;
+      font-size: 14px;
+    }
+
+    #delay {
+      margin: 0 15px;
+    }
+  </style>
+</head>
+
+<body>
+
+  <h2>Advanced Shaka Live Player</h2>
+
+  <div class="controls">
+
+    <input
+      id="manifest"
+      type="text"
+      placeholder="Manifest URL">
+
+    <br>
+
+    <input
+      id="kid"
+      type="text"
+      placeholder="ClearKey KID">
+
+    <br>
+
+    <input
+      id="key"
+      type="text"
+      placeholder="ClearKey KEY">
+
+    <br>
+
+    <button onclick="loadStream()">Load Stream</button>
+
+  </div>
+
+  <video id="video" controls autoplay></video>
+
+  <div class="controls">
+
+    <button onclick="goLive()">🔴 Live</button>
+
+    <span id="delay">Live Delay: --</span>
+
+    <select id="quality" onchange="setQuality(this.value)">
+      <option value="-1">Auto</option>
+    </select>
+
+  </div>
+
+  <div id="status">
+    Enter Manifest URL and Keys, then click Load Stream.
+  </div>
+
+  <script>
+
+    let player;
+    let video;
+
+    async function init() {
+
+      video = document.getElementById("video");
+
+      player = new shaka.Player(video);
+
+      window.player = player;
+
+      player.configure({
+
+        streaming: {
+          lowLatencyMode: true,
+          bufferingGoal: 10,
+          rebufferingGoal: 2
+        }
+
+      });
+
+      player.addEventListener("error", onError);
+      player.addEventListener("trackschanged", updateQualityOptions);
+      player.addEventListener("adaptation", updateAutoLabel);
+
+      setInterval(() => {
+        updateLiveDelay();
+        updateAutoLabel();
+      }, 1000);
+
+      // Prefill with your current stream
+      document.getElementById("manifest").value =
+        "https://otte.live.fly.ww.aiv-cdn.net/iad-nitro/live/clients/dash/enc/rk7p7dafl0/out/v1/ffc1c57edf814108953aa0992b3145ff/cenc.mpd";
+
+      document.getElementById("kid").value =
+        "2c60f5b5e6e8ad2d163532250859723b";
+
+      document.getElementById("key").value =
+        "cb11a5f25b5baded086a2e7a046b9b02";
+
+    }
+
+    async function loadStream() {
+
+      const manifest =
+        document.getElementById("manifest").value.trim();
+
+      const kid =
+        document.getElementById("kid").value.trim();
+
+      const key =
+        document.getElementById("key").value.trim();
+
+      if (!manifest) {
+        alert("Please enter Manifest URL");
+        return;
+      }
+
+      try {
+
+        document.getElementById("status").innerText =
+          "Loading stream...";
+
+        await player.unload();
+
+        // Reset quality dropdown
+        const quality = document.getElementById("quality");
+        quality.innerHTML = '<option value="-1">Auto</option>';
+
+        if (kid && key) {
+
+          player.configure({
+
+            drm: {
+              clearKeys: {
+                [kid]: key
+              }
+            }
+
+          });
+
+        } else {
+
+          player.configure({
+
+            drm: {
+              clearKeys: {}
+            }
+
+          });
+
+        }
+
+        await player.load(manifest);
+
+        document.getElementById("status").innerText =
+          "✅ Stream Loaded Successfully";
+
+      }
+      catch (e) {
+
+        console.error(e);
+
+        document.getElementById("status").innerText =
+          "❌ Failed to Load Stream";
+
+      }
+
+    }
+
+    function updateQualityOptions() {
+
+      const tracks = player.getVariantTracks();
+
+      const select = document.getElementById("quality");
+
+      select.innerHTML =
+        '<option value="-1">Auto</option>';
+
+      tracks.forEach(track => {
+
+        if (!track.height)
+          return;
+
+        const option = document.createElement("option");
+
+        option.value = track.id;
+
+        option.text =
+          `${track.height}p`;
+
+        select.appendChild(option);
+
+      });
+
+      updateAutoLabel();
+
+    }
+
+    function updateAutoLabel() {
+
+      const tracks = player.getVariantTracks();
+
+      const active =
+        tracks.find(track => track.active);
+
+      if (!active)
+        return;
+
+      const auto =
+        document.querySelector("#quality option[value='-1']");
+
+      auto.text =
+        `Auto (${active.height || "Audio"}p)`;
+
+    }
+
+    function setQuality(id) {
+
+      if (id == "-1") {
+
+        player.configure({
+          abr: {
+            enabled: true
+          }
+        });
+
+        return;
+
+      }
+
+      const tracks =
+        player.getVariantTracks();
+
+      const track =
+        tracks.find(t => t.id == id);
+
+      if (!track)
+        return;
+
+      player.configure({
+        abr: {
+          enabled: false
+        }
+      });
+
+      player.selectVariantTrack(track, true);
+
+    }
+
+    function goLive() {
+
+      const range =
+        player.seekRange();
+
+      video.currentTime =
+        range.end;
+
+    }
+
+    function updateLiveDelay() {
+
+      if (!player)
+        return;
+
+      const range =
+        player.seekRange();
+
+      const delay =
+        Math.max(0,
+          range.end - video.currentTime);
+
+      document.getElementById("delay").innerText =
+        "Live Delay: " +
+        delay.toFixed(2) +
+        "s";
+
+    }
+
+    function onError(event) {
+
+      console.error(event);
+
+      document.getElementById("status").innerText =
+        "❌ Error: " +
+        event.detail.code;
+
+    }
+
+    init();
+
+  </script>
+
+</body>
+
+</html>
